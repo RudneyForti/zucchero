@@ -69,3 +69,4 @@ set equipment_id = (
 )
 where task.required_equipment_kind is not null
   and task.equipment_id is null;
+
