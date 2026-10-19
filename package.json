@@ -1,0 +1,34 @@
+{
+  "name": "zucchero",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:up": "docker compose -f infra/local/compose.yaml up -d",
+    "db:down": "docker compose -f infra/local/compose.yaml down",
+    "db:migrate": "pnpm --filter @confeitaria/api db:migrate",
+    "db:seed": "pnpm --filter @confeitaria/api db:seed",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f web api"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1",
+    "prettier": "3.9.6",
+    "turbo": "2.10.11",
+    "typescript": "6.0.3"
+  }
+}

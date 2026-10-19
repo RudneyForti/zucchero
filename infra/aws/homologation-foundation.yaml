@@ -1,0 +1,190 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Fundação de homologação da Bancada para pequena confeitaria.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: homolog
+    AllowedPattern: "[a-z0-9-]+"
+  CognitoDomainPrefix:
+    Type: String
+    Description: Prefixo globalmente único para o domínio de entrada do Cognito.
+  WebCallbackUrl:
+    Type: String
+    Description: URL HTTPS de retorno da aplicação web.
+  WebLogoutUrl:
+    Type: String
+    Description: URL HTTPS para onde a proprietária volta ao sair.
+  DatabaseUsername:
+    Type: String
+    Default: confeitaria_admin
+  DatabaseName:
+    Type: String
+    Default: confeitaria
+
+Resources:
+  ContainerRegistryApi:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "bancada-${EnvironmentName}-api"
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Manter vinte imagens","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":20},"action":{"type":"expire"}}]}'
+
+  ContainerRegistryWeb:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "bancada-${EnvironmentName}-web"
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Manter vinte imagens","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":20},"action":{"type":"expire"}}]}'
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "bancada-${EnvironmentName}"
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      DeletionProtection: ACTIVE
+      MfaConfiguration: OPTIONAL
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Schema:
+        - Name: tenant_id
+          AttributeDataType: String
+          Mutable: false
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "36"
+            MaxLength: "36"
+        - Name: tenant_name
+          AttributeDataType: String
+          Mutable: false
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "2"
+            MaxLength: "120"
+      UserPoolTags:
+        application: bancada
+        environment: !Ref EnvironmentName
+
+  CognitoClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "bancada-${EnvironmentName}-web"
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      ExplicitAuthFlows: [ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      ReadAttributes: [email, name, "custom:tenant_id", "custom:tenant_name"]
+      WriteAttributes: [email, name, "custom:tenant_id", "custom:tenant_name"]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      CallbackURLs: [!Ref WebCallbackUrl]
+      LogoutURLs: [!Ref WebLogoutUrl]
+      SupportedIdentityProviders: [COGNITO]
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+  CognitoDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref CognitoUserPool
+
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: { Status: Enabled }
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+      Tags:
+        - Key: application
+          Value: bancada
+        - Key: environment
+          Value: !Ref EnvironmentName
+
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub "bancada/${EnvironmentName}/database"
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${DatabaseUsername}","database":"${DatabaseName}"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\\'
+
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "bancada-${EnvironmentName}"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/bancada/${EnvironmentName}/api"
+      RetentionInDays: 30
+
+  WebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/bancada/${EnvironmentName}/web"
+      RetentionInDays: 30
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/bancada/${EnvironmentName}/worker"
+      RetentionInDays: 30
+
+Outputs:
+  UserPoolId:
+    Value: !Ref CognitoUserPool
+  UserPoolClientId:
+    Value: !Ref CognitoClient
+  CognitoIssuer:
+    Value: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}"
+  CognitoHostedUi:
+    Value: !Sub "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
+  ApiRepositoryUri:
+    Value: !GetAtt ContainerRegistryApi.RepositoryUri
+  WebRepositoryUri:
+    Value: !GetAtt ContainerRegistryWeb.RepositoryUri
+  DocumentBucketName:
+    Value: !Ref DocumentBucket
+  ClusterName:
+    Value: !Ref EcsCluster
+  DatabaseSecretArn:
+    Value: !Ref DatabaseSecret

@@ -1,0 +1,172 @@
+name: zucchero
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: zucchero-postgres
+    environment:
+      POSTGRES_DB: confeitaria
+      POSTGRES_USER: confeitaria_admin
+      POSTGRES_PASSWORD: confeitaria_admin
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U confeitaria_admin -d confeitaria"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - confeitaria_postgres:/var/lib/postgresql/data
+      - ./infra/local/init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: zucchero-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - confeitaria_redis:/data
+    restart: unless-stopped
+
+  recipe-ai:
+    image: ollama/ollama:latest
+    container_name: zucchero-recipe-ai
+    gpus: all
+    mem_limit: 2g
+    environment:
+      OLLAMA_KEEP_ALIVE: ${RECIPE_AI_KEEP_ALIVE:-5m}
+      OLLAMA_NUM_PARALLEL: 1
+    volumes:
+      - confeitaria_recipe_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 20
+    restart: unless-stopped
+
+  recipe-ai-model:
+    image: ollama/ollama:latest
+    container_name: zucchero-recipe-ai-model
+    environment:
+      OLLAMA_HOST: http://recipe-ai:11434
+    entrypoint: ["/bin/ollama"]
+    command: ["pull", "${RECIPE_AI_MODEL:-qwen3:4b}"]
+    depends_on:
+      recipe-ai:
+        condition: service_healthy
+    restart: "no"
+
+  migrate:
+    container_name: zucchero-migrate
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: tools
+    command: ["pnpm", "db:migrate"]
+    environment:
+      DATABASE_ADMIN_URL: postgres://confeitaria_admin:confeitaria_admin@postgres:5432/confeitaria
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    container_name: zucchero-api
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      WEB_ORIGIN: http://localhost:6000,http://localhost:6001
+      DATABASE_URL: postgres://confeitaria_app:confeitaria_app@postgres:5432/confeitaria
+      REDIS_URL: redis://redis:6379
+      LOCAL_AUTH_ENABLED: ${LOCAL_AUTH_ENABLED:-false}
+      LOCAL_AUTH_SESSION_SECRET: ${LOCAL_AUTH_SESSION_SECRET:-}
+      LOCAL_MFA_ENCRYPTION_KEY: ${LOCAL_MFA_ENCRYPTION_KEY:-}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      DELIVERY_QUOTE_SECRET: ${DELIVERY_QUOTE_SECRET:-}
+      RECIPE_AI_ENABLED: ${RECIPE_AI_ENABLED:-true}
+      RECIPE_AI_URL: http://recipe-ai:11434
+      RECIPE_AI_MODEL: ${RECIPE_AI_MODEL:-qwen3:4b}
+      RECIPE_AI_TIMEOUT_MS: ${RECIPE_AI_TIMEOUT_MS:-180000}
+      RECIPE_AI_KEEP_ALIVE: ${RECIPE_AI_KEEP_ALIVE:-5m}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      recipe-ai-model:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    container_name: zucchero-worker
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    environment:
+      NODE_ENV: development
+      DATABASE_WORKER_URL: postgres://confeitaria_admin:confeitaria_admin@postgres:5432/confeitaria
+      REDIS_URL: redis://redis:6379
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3002/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    container_name: zucchero-web
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: runtime
+    environment:
+      API_INTERNAL_URL: http://api:3001/v1
+      DEMO_TENANT_ID: 11111111-1111-4111-8111-111111111111
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:6001}
+      AWS_REGION: ${AWS_REGION:-sa-east-1}
+      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
+      COGNITO_DOMAIN: ${COGNITO_DOMAIN:-}
+      LOCAL_AUTH_ENABLED: ${LOCAL_AUTH_ENABLED:-false}
+      LOCAL_AUTH_EMAIL: ${LOCAL_AUTH_EMAIL:-}
+      LOCAL_AUTH_PASSWORD_HASH: ${LOCAL_AUTH_PASSWORD_HASH:-}
+      LOCAL_AUTH_TOTP_SECRET: ${LOCAL_AUTH_TOTP_SECRET:-}
+      LOCAL_AUTH_SESSION_SECRET: ${LOCAL_AUTH_SESSION_SECRET:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "6000:3000"
+      - "6001:3000"
+    restart: unless-stopped
+
+volumes:
+  confeitaria_postgres:
+    name: confeitaria_confeitaria_postgres
+  confeitaria_redis:
+    name: confeitaria_confeitaria_redis
+  confeitaria_recipe_models:
+    name: confeitaria_confeitaria_recipe_models

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f8f3ea" />
+    <title>Sem conexão — Zucchero</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, sans-serif;
+        color: #173a61;
+        background: #f8f3ea;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background-image:
+          linear-gradient(rgb(111 88 76 / 7%) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(111 88 76 / 7%) 1px, transparent 1px);
+        background-size: 48px 48px;
+      }
+      main {
+        width: min(560px, 100%);
+        padding: clamp(30px, 7vw, 58px);
+        background: #fffaf5;
+        border: 1px solid #dfd1c6;
+        border-left: 8px solid #efd0d8;
+        border-radius: 8px 34px 34px;
+        box-shadow: 0 24px 70px rgb(55 40 33 / 12%);
+      }
+      img {
+        width: min(240px, 72vw);
+        height: auto;
+      }
+      p:first-of-type {
+        margin-top: 26px;
+        color: #7b334d;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 8px 0 16px;
+        font-family: Georgia, serif;
+        font-size: clamp(34px, 8vw, 55px);
+        font-weight: 500;
+        line-height: 1;
+      }
+      p {
+        color: #6c625e;
+        line-height: 1.65;
+      }
+      button {
+        min-height: 48px;
+        margin-top: 14px;
+        padding: 0 22px;
+        color: white;
+        background: #7b334d;
+        border: 0;
+        border-radius: 999px;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      button:focus-visible {
+        outline: 3px solid #e4a9b8;
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/zucchero-logo.svg" alt="Zucchero" />
+      <p>A bancada está preservada</p>
+      <h1>A internet deu uma pausa.</h1>
+      <p>
+        As páginas visitadas continuam disponíveis quando possível. Para salvar
+        alterações, espere a conexão voltar — assim nenhum pedido ou movimento
+        corre o risco de ficar pela metade.
+      </p>
+      <button type="button" onclick="location.reload()">
+        Tentar novamente
+      </button>
+    </main>
+  </body>
+</html>
